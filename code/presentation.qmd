@@ -1,0 +1,119 @@
+---
+title: |
+  <h2 style='font-size: 50px'>
+   Fertility and PM2.5 Pollution   
+  </h2>
+  <div style='margin-bottom: 50px; font-size: 40px'>
+   The case of Eastern Europe
+  </div>
+# title-slide-attributes:
+#     data-background-image: images/title_backg.png
+#     data-background-size: contain
+#     data-background-opacity: "0.5"
+author: 
+  
+  - Ale, 
+  - Song, 
+  - Egor 
+
+format: 
+  revealjs: 
+    theme: simple
+    chalkboard: true
+    smaller: true
+    scrollable: false
+    incremental: False
+    preview-links: true
+    footer: "EDSD, 11 December 2025"
+---
+
+```{r}
+#| message: false
+#| warning: false
+knitr::opts_chunk$set(echo = FALSE)
+
+library(srvyr)    # For weighting complex data with the tidyverse language
+library(survey)    # For working with complex survey data
+library(tidyverse) # A language to manipulate data in R
+library(sf)        # Manipulate vector objects
+library(terra)     # Manipulate raster objects. Terra is simpler, faster, and can do more
+library(stars)     # Manipulate raster objects
+library(ggspatial) # Plot spatial objects with ggplot2
+library(ggpubr)    # To combine multiple plots with ggarrange
+library(geodata)   # GADM to import shapefiles directly from R
+library(spdep)     # For spatial autocorrelation analysis
+library(exactextractr) # Fast extraction from raster datasets using polygons
+library(haven)     # To import SPSS, Stata, and SAS data
+library(tmap)      # For static and interactive maps
+library(eurostat) # For accessing Eurostat data
+library(knitr) # For tables/kable
+library(leaflet) # For interactive maps
+library(biscale) # for bivariate choropleth maps
+library(chirps) # to import Chirts and chirps data
+library(jtools) # for summarizing regression results
+```
+
+```{r}
+#| message: false
+#| warning: false
+#| include: false
+europe <- st_read("../data/NUTS_RG_20M_2024_3035.shp") 
+
+countries_ee <- c("BG", "CZ", "HU", "PL", "RO", "SK")
+east_europe = europe %>%  filter(CNTR_CODE %in% countries_ee,
+                          LEVL_CODE == 3) 
+
+east_europe_wgs84 <- st_transform(east_europe, crs = 4326)
+```
+
+```{r}
+#| message: false
+#| warning: false
+#| include: false
+east_europe_fert <- get_eurostat("demo_r_find3") %>% 
+  mutate(cntr = str_extract(geo, "[A-Z]+")) %>% 
+  filter(cntr %in% countries_ee, 
+         indic_de == "TOTFERRT")
+```
+
+```{r}
+#| message: false
+#| warning: false
+#| include: false
+east_europe_fert_shp <- east_europe_fert %>% 
+  mutate(year = year(TIME_PERIOD)) %>% 
+  filter(year == 2023) %>% 
+  right_join(east_europe_wgs84, by = join_by('geo'== 'NUTS_ID')) %>% 
+  st_as_sf()
+```
+
+## TFR 
+
+```{r}
+ggplot() + 
+  layer_spatial(east_europe_fert_shp, aes(fill = values)) +
+  scale_fill_viridis_c(name= "Total Fertility Rate", na.value = NA) +
+  theme_minimal()+
+  theme(legend.position = "bottom")
+```
+
+## PM2.5
+
+```{r}
+pm25 <- rast("../data/V6GL02.04.CNNPM25.EU.202301-202312.nc")
+pm25_crop <- crop(pm25, east_europe_wgs84)
+pm25_sum <- pm25_crop %>% sum()
+
+pm25_avg <- mean(pm25_sum)
+# pm25_sd <- stdev(pm25_sum)
+# pm25_z <- (pm25_sum - pm25_avg) / pm25_sd
+
+ggplot() + 
+  layer_spatial(mask(pm25_crop, vect(east_europe_wgs84), touches = FALSE)) + 
+  layer_spatial(east_europe_wgs84, alpha = 0) + 
+  theme_minimal() + 
+  scale_fill_distiller(palette = "YlOrRd", direction = 1, na.value = "transparent")+
+  labs(fill = "PM 2.5")+
+  theme(legend.position = "bottom")
+```
+
