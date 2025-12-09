@@ -1,0 +1,60 @@
+---
+title: |
+  <h2 style='font-size: 50px'>
+   Fertility and PM2.5 Pollution   
+  </h2>
+  <div style='margin-bottom: 50px; font-size: 40px'>
+   The case of Eastern Europe
+  </div>
+# title-slide-attributes:
+#     data-background-image: images/title_backg.png
+#     data-background-size: contain
+#     data-background-opacity: "0.5"
+author: 
+  
+  - Ale, 
+  - Song, 
+  - Egor 
+
+format: 
+  revealjs: 
+    theme: simple
+    chalkboard: true
+    smaller: true
+    scrollable: false
+    incremental: False
+    preview-links: true
+    footer: "EDSD, 11 December 2025"
+---
+
+```{r}
+#| message: false
+#| warning: false
+knitr::opts_chunk$set(echo = FALSE)
+
+library(srvyr)    # For weighting complex data with the tidyverse language
+library(survey)    # For working with complex survey data
+library(tidyverse) # A language to manipulate data in R
+library(sf)        # Manipulate vector objects
+library(terra)     # Manipulate raster objects. Terra is simpler, faster, and can do more
+library(stars)     # Manipulate raster objects
+library(ggspatial) # Plot spatial objects with ggplot2
+library(ggpubr)    # To combine multiple plots with ggarrange
+library(geodata)   # GADM to import shapefiles directly from R
+library(spdep)     # For spatial autocorrelation analysis
+library(exactextractr) # Fast extraction from raster datasets using polygons
+library(haven)     # To import SPSS, Stata, and SAS data
+library(tmap)      # For static and interactive maps
+library(eurostat) # For accessing Eurostat data
+library(knitr) # For tables/kable
+library(leaflet) # For interactive maps
+library(biscale) # for bivariate choropleth maps
+library(chirps) # to import Chirts and chirps data
+library(jtools) # for summarizing regression results
+```
+
+```{r}
+
+```
+
+
