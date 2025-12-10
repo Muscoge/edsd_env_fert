@@ -51,6 +51,7 @@ library(leaflet) # For interactive maps
 library(biscale) # for bivariate choropleth maps
 library(chirps) # to import Chirts and chirps data
 library(jtools) # for summarizing regression results
+library(patchwork)
 ```
 
 ```{r}
@@ -73,16 +74,30 @@ east_europe_wgs84 <- st_transform(east_europe, crs = 4326)
 east_europe_fert <- get_eurostat("demo_r_find3") %>% 
   mutate(cntr = str_extract(geo, "[A-Z]+")) %>% 
   filter(cntr %in% countries_ee, 
-         indic_de == "TOTFERRT")
+         indic_de == "TOTFERRT") %>% 
+  mutate(year = year(TIME_PERIOD)) %>% 
+  arrange(geo, year)
+
+east_europe_fert_avg_gr <- east_europe_fert %>% 
+  group_by(geo) %>%
+  arrange(TIME_PERIOD) %>%
+  mutate(
+    growth_rate = (values / lag(values) - 1) * 100,
+    n_years = n()
+  ) %>%
+  filter(!is.na(growth_rate)) %>%
+  summarise(
+    avg_growth_pct = mean(growth_rate, na.rm = TRUE),
+    periods = n(),
+    .groups = "drop"
+  )
 ```
 
 ```{r}
 #| message: false
 #| warning: false
 #| include: false
-east_europe_fert_shp <- east_europe_fert %>% 
-  mutate(year = year(TIME_PERIOD)) %>% 
-  filter(year == 2023) %>% 
+east_europe_fert_shp <- east_europe_fert_avg_gr %>% 
   right_join(east_europe_wgs84, by = join_by('geo'== 'NUTS_ID')) %>% 
   st_as_sf()
 ```
@@ -91,29 +106,120 @@ east_europe_fert_shp <- east_europe_fert %>%
 
 ```{r}
 ggplot() + 
-  layer_spatial(east_europe_fert_shp, aes(fill = values)) +
-  scale_fill_viridis_c(name= "Total Fertility Rate", na.value = NA) +
-  theme_minimal()+
+  layer_spatial(east_europe_fert_shp, aes(fill = avg_growth_pct)) +
+  scale_fill_distiller(name= "ΔTFR/yr (%)",
+                       palette = "RdYlGn", direction = 1)+
+  theme_minimal(base_size = 16)+
+  labs(title = "Eastern Europe,\nannual change, 2013-2023")+
   theme(legend.position = "bottom")
+
+ggsave("../figures/tfr_2013_2023.png", 
+       bg = "transparent",
+       width = 5, 
+       height = 13)
 ```
 
 ## PM2.5
 
 ```{r}
-pm25 <- rast("../data/V6GL02.04.CNNPM25.EU.202301-202312.nc")
-pm25_crop <- crop(pm25, east_europe_wgs84)
-pm25_sum <- pm25_crop %>% sum()
+# #| message: false
+# #| warning: false
+# #| include: false
 
-pm25_avg <- mean(pm25_sum)
+pm_by_year <- function(year_sel){
+  filename = paste0("../data/V6GL02.04.CNNPM25.EU.", year_sel, 
+                    "01-", year_sel, "12.nc")
+  pm25_temp <- rast(filename) %>% 
+    crop(east_europe_wgs84)
+  
+  pm25_temp[pm25_temp < 0] = NA
+  
+  breaks <- c(0, 10, 20, 30, 40, 50)
+  pm25_disc <- classify(pm25_temp, rcl = cbind(head(breaks, -1),
+                                         tail(breaks, -1),
+                                         1:(length(breaks) - 1)))
+  pm25_disc <- as.factor(pm25_disc)
+  
+  pm_plot <- ggplot() +
+                layer_spatial(mask(pm25_disc,
+                                   vect(east_europe_wgs84), 
+                                   touches = FALSE)) +
+                layer_spatial(east_europe_wgs84, alpha = 0) +
+                theme_minimal(base_size = 16)+
+                scale_fill_brewer(palette  = "YlOrRd",
+                                  na.value = "transparent",
+                                  labels = c("< 10", 
+                                             ">= 10 & < 20",
+                                             ">= 20 & < 30",
+                                             ">= 30 & < 40",
+                                             ">= 40", ""),
+                                  drop     = FALSE) +
+                labs(fill = "PM 2.5 (µg/m3)", 
+                     title = paste0("Eastern Europe, ", year_sel))+
+                theme(legend.position = "bottom")
+  return(pm_plot)
+}
+
+# pm25_sum <- pm25_crop %>% sum()
+# pm25_avg <- mean(pm25_sum)
 # pm25_sd <- stdev(pm25_sum)
 # pm25_z <- (pm25_sum - pm25_avg) / pm25_sd
 
-ggplot() + 
-  layer_spatial(mask(pm25_crop, vect(east_europe_wgs84), touches = FALSE)) + 
+
+```
+
+```{r}
+pm_2013 <- pm_by_year(2013)
+pm_2023 <- pm_by_year(2023) + guides(fill="none")
+```
+
+
+```{r}
+#| message: false
+#| warning: false
+#| include: false
+# List all PM2.5 files (assuming consistent naming pattern)
+pm25_files <- list.files("../data/", pattern = "V6GL02.04.CNNPM25.EU.*nc", 
+                         full.names = TRUE)
+
+# Extract years from filenames for tracking
+years <- str_extract(basename(pm25_files), "\\d{4}") %>% 
+  as.integer() %>% 
+  formatC(width = 4, flag = "0")
+
+# Stack and process all rasters directly
+pm25_stack <- rast(pm25_files)
+pm25_crop_stack <- crop(pm25_stack, east_europe_wgs84)
+
+# Calculate geometric mean growth rate entirely in raster operations
+pm25_growth <- app(pm25_crop_stack, fun = function(x) {
+  if(length(na.omit(x)) < 2) return(NA)
+  growth_rates <- x[-1] / x[-length(x)] - 1
+  growth_rates <- growth_rates[!is.na(growth_rates)]
+  if(length(growth_rates) == 0) return(NA)
+  mean(growth_rates)
+}) * 100  # Convert to percentage
+
+names(pm25_growth) <- "pm25_growth_pct"
+```
+
+```{r}
+pm25_growth <- ggplot() + 
+  layer_spatial(mask(pm25_growth, vect(east_europe_wgs84), touches = FALSE)) + 
   layer_spatial(east_europe_wgs84, alpha = 0) + 
-  theme_minimal() + 
-  scale_fill_distiller(palette = "YlOrRd", direction = 1, na.value = "transparent")+
-  labs(fill = "PM 2.5")+
+  theme_minimal(base_size = 16) + 
+  scale_fill_distiller(palette = "RdYlGn", direction = -1, 
+                       na.value = "transparent")+
+  labs(fill = "ΔPM2.5/yr (%)", 
+       title = "Eastern Europe,\nannual change, 2013-2023")+
   theme(legend.position = "bottom")
+```
+
+```{r}
+pm_2013 + pm25_growth + pm_2023
+ggsave("../figures/pm25_2013_2023.png", 
+       bg = "transparent",
+       width = 15, 
+       height = 13)
 ```
 
